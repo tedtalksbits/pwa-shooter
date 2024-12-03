@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Circle } from 'react-konva';
+import { motion } from 'framer-motion';
 
 const App: React.FC = () => {
   const [squares, setSquares] = useState<any[]>([]);
@@ -10,6 +11,19 @@ const App: React.FC = () => {
     x: number;
     y: number;
   }>({ x: 0, y: 0 });
+  const [scoreCallout, setScoreCallout] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    score: number;
+    health: number;
+  }>({
+    visible: false,
+    x: 0,
+    y: 0,
+    score: 0,
+    health: 0,
+  });
 
   useEffect(() => {
     // Generate squares at intervals
@@ -31,6 +45,17 @@ const App: React.FC = () => {
     return () => {
       clearInterval(squareInterval);
       clearInterval(moveInterval);
+    };
+  }, []);
+
+  // decrease energy over time
+  useEffect(() => {
+    const energyInterval = setInterval(() => {
+      setEnergy((prevEnergy) => Math.max(0, prevEnergy - 1));
+    }, 1000);
+
+    return () => {
+      clearInterval(energyInterval);
     };
   }, []);
 
@@ -68,10 +93,34 @@ const App: React.FC = () => {
       setSquares((prevSquares) =>
         prevSquares.map((square) => {
           if (isCollision(square, { x, y })) {
-            square.destroyed = true; // Mark square as destroyed
-            setScore((prevScore) => prevScore + square.size);
-            // return some energy
-            setEnergy((prevEnergy) => prevEnergy + square.size / 10);
+            if (square.destroyed) return square; // Skip if square is already destroyed
+            square.health -= 1; // Reduce health
+            if (square.health <= 0) {
+              square.destroyed = true;
+            }
+            const pointsGained = square.size;
+            setScore((prevScore) => prevScore + pointsGained);
+            /// Calculate capped energy based on square size
+            const baseEnergyReward = Math.max(
+              0,
+              4 - Math.floor(square.size / 20)
+            ); // smaller squares give more energy
+            const cappedEnergyReward = Math.min(baseEnergyReward, 4); // Ensure the max energy returned is 4
+            setEnergy((prevEnergy) =>
+              Math.max(0, prevEnergy + cappedEnergyReward)
+            ); // Avoid negative energy
+            // Show score callout
+            setScoreCallout({
+              visible: true,
+              x: shootingPosition.x,
+              y: shootingPosition.y,
+              score: pointsGained,
+              health: square.size / 2,
+            });
+            setTimeout(
+              () => setScoreCallout({ ...scoreCallout, visible: false }),
+              1000
+            ); // Hide after 1 second
           }
           return square;
         })
@@ -106,23 +155,36 @@ const App: React.FC = () => {
       <Stage width={window.innerWidth} height={window.innerHeight}>
         <Layer>
           {squares.map((square) => (
-            <Rect
-              key={square.id}
-              x={square.x}
-              y={square.y}
-              width={square.size}
-              height={square.size}
-              fill={square.destroyed ? 'red' : 'blue'}
-              scaleX={square.destroyed ? 1.5 : 1} // Scale up if destroyed
-              scaleY={square.destroyed ? 1.5 : 1}
-              onAnimationEnd={() => {
-                if (square.destroyed) {
-                  setSquares((prevSquares) =>
-                    prevSquares.filter((s) => s.id !== square.id)
-                  );
-                }
-              }}
-            />
+            <>
+              <Rect
+                key={square.id}
+                x={square.x}
+                y={square.y}
+                width={square.size}
+                height={square.size}
+                fill={square.destroyed ? 'red' : 'blue'}
+                scaleX={square.destroyed ? 0 : 1} // Scale up if destroyed
+                scaleY={square.destroyed ? 0 : 1}
+                onAnimationEnd={() => {
+                  if (square.destroyed) {
+                    setSquares((prevSquares) =>
+                      prevSquares.filter((s) => s.id !== square.id)
+                    );
+                  }
+                }}
+              />
+              {/* sqare health bar */}
+              <Rect
+                x={square.x}
+                y={square.y - 10}
+                width={square.destroyed ? 0 : square.size}
+                height={5}
+                fill='green'
+                scaleX={
+                  square.destroyed ? 0 : square.health / (square.size / 2)
+                } // Scale health bar based on health
+              />
+            </>
           ))}
           {shooting && (
             <Circle
@@ -131,6 +193,8 @@ const App: React.FC = () => {
               radius={10}
               fill='yellow'
               opacity={0.5}
+              animate={{ scale: [1, 1.5, 1] }} // Scale animation for the shooting effect
+              transition={{ duration: 0.5 }} // Duration for the animation
             />
           )}
         </Layer>
@@ -155,6 +219,30 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+      {scoreCallout.visible && (
+        <>
+          <motion.div
+            style={{
+              position: 'absolute',
+              left: scoreCallout.x,
+              top: scoreCallout.y,
+              pointerEvents: 'none',
+              color: 'yellow',
+              fontSize: '24px',
+            }}
+            initial={{ opacity: 1, y: 0 }}
+            animate={{ opacity: 0, y: -30 }} // Move upwards and fade out
+            transition={{ duration: 0.5 }}
+          >
+            <div className='flex text-xs'>
+              <span>+{Math.round(scoreCallout.score).toFixed()} points</span>
+              <span className='ml-4'>
+                -{Math.round(scoreCallout.health).toFixed()} energy
+              </span>
+            </div>
+          </motion.div>
+        </>
       )}
     </div>
   );
